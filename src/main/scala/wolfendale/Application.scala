@@ -1,33 +1,22 @@
 package wolfendale
 
-import cats._
+import cats.Eval
 import cats.implicits._
-import monix.eval.Task
-import wolfendale.Program.Syntax._
+import higherkindness.droste.{Algebra, Coalgebra, RCoalgebra}
+import io.iteratee._
+import io.iteratee.modules.eval._
+import wolfendale.control.ProgramF.PureF
+import wolfendale.control.{Program, ProgramF}
+import wolfendale.control.eval._
+import wolfendale.control.syntax._
 
 object Application extends App {
 
-  val program: Program[Eval, Int] = for {
-    a <- Eval.now(1).blank
-    b <- Eval.now(2).blank
-  } yield a + b
+  val program: Program[Eval, String, Int] = for {
+    a <- Eval.always(1) @@ "foo"
+    b <- Eval.always(2) @@ "baz"
+    c <- Eval.always(3) @@ "bar"
+  } yield a + b + c
 
-//  println(program)
-//
-//  val Left(program2) = program.step.value
-//  println(program2)
-//
-//  val Left(program3) = program2.step.value
-//  println(program3)
-//
-//  val Right(result) = program3.step.value
-//  println(result)
-
-  val result = program.tailRecM {
-    _.intercept {
-      case a =>
-        println(a)
-        a
-    }.step
-  }.value
+  program.enumerate.into(Iteratee.foreach(println)).value
 }
