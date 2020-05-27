@@ -3,30 +3,27 @@ package wolfendale
 import cats._
 import cats.data._
 import cats.implicits._
-import higherkindness.droste._
-import wolfendale.control.Program
+import io.iteratee._
+import wolfendale.control._
 import wolfendale.control.Program.Continue
 import wolfendale.control.syntax._
+import wolfendale.control.eval._
 
 import scala.annotation.tailrec
 
 object Application extends App {
 
-  val program: Program[Eval, String, Int] = for {
-    a <- Eval.now(1) @@ "foo"
-    b <- Eval.now(2) @@ "bar"
-    c <- Eval.now(3) @@ "baz"
-  } yield a + b + c
+  val program = for {
+    a <- Option(1) @@ "foo"
+    b <- Option(2) @@ "bar"
+    c <- Option(3) @@ "baz"
+    d <- Option(4) @@ "quux"
+  } yield a + b + c + d
 
-  println(program)
-  val Left(a) = program.step.value
-  println(a)
-  val Left(b) = a.step.value
-  println(b)
-  val Left(c) = b.step.value
-  println(c)
-  val Right(d) = c.step.value
-  println(d)
+  val stream: Enumerator[Option, ProgramStep[Option, String, Unit, Int]] = enumerator(program)
+  val take = Iteratee.take[Option, ProgramStep[Option, String, Unit, Int]](1)
+  val machine = take combine take
+  val result = stream.into(machine)
 
-  println(program.foldLeft(0)(_ - _))
+  println(result)
 }
