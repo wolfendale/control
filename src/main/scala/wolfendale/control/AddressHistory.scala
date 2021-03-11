@@ -1,6 +1,5 @@
 package wolfendale.control
 
-import cats._
 import cats.implicits._
 import monix.eval.Task
 import monix.execution.Scheduler.Implicits.global
@@ -13,11 +12,17 @@ object AddressHistory extends App {
 
   final case class AddressHistory(address: String, years: Int)
 
+  sealed trait Identifier
+  final case class AddressIdentifier(index: Int) extends Identifier
+  final case class YearsIdentifier(index: Int) extends Identifier
+
   def getAddress(followingAddress: Option[String]): Task[String] =
     Task.eval {
+
       val message = followingAddress.map { a =>
         s"What was your address before $a?"
       }.getOrElse("What is your current address?")
+
       println(message)
       val answer = StdIn.readLine()
       println(s"($answer)")
@@ -33,8 +38,8 @@ object AddressHistory extends App {
     }
 
   def address(index: Int, followingAddress: Option[String]) = for {
-    address       <- getAddress(followingAddress) @@ s"address-$index"
-    timeAtAddress <- howLong(address) @@ s"years-$index"
+    address       <- getAddress(followingAddress) @@ AddressIdentifier(index).asInstanceOf[Identifier]
+    timeAtAddress <- howLong(address) @@ YearsIdentifier(index).asInstanceOf[Identifier]
   } yield AddressHistory(address, timeAtAddress)
 
   val program = List.empty[AddressHistory].iterateUntilM { addresses =>
@@ -45,7 +50,7 @@ object AddressHistory extends App {
   }
 
   val result = Builder
-    .annotatedWith[String]
+    .annotatedWith[Identifier]
     .toCompletion
     .trace[Task, Throwable, List[AddressHistory]]
     .run(program)
