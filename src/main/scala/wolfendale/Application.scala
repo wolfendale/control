@@ -4,26 +4,35 @@ import cats._
 import cats.data._
 import cats.implicits._
 import io.iteratee._
-import wolfendale.control._
-import wolfendale.control.Program.Continue
+import monix.eval.Task
+import wolfendale.control.Program
+import wolfendale.control.machine.Builder
 import wolfendale.control.syntax._
-import wolfendale.control.eval._
-
-import scala.annotation.tailrec
 
 object Application extends App {
 
+  import monix.execution.Scheduler.Implicits.global
+
   val program = for {
-    a <- Option(1) @@ "foo"
-    b <- Option(2) @@ "bar"
-    c <- Option(3) @@ "baz"
-    d <- Option(4) @@ "quux"
+    a <- Task.eval(1) @@ "foo"
+    b <- Task.eval(2) @@ None
+    c <- Task.eval(3) @@ "baz"
+    d <- Task.eval(4) @@ "quux"
   } yield a + b + c + d
 
-  val stream: Enumerator[Option, ProgramStep[Option, String, Unit, Int]] = enumerator(program)
-  val take = Iteratee.take[Option, ProgramStep[Option, String, Unit, Int]](1)
-  val machine = take combine take
-  val result = stream.into(machine)
+  val machine1 = Builder
+    .annotatedWith[String]
+    .whilst(_ != "quux")
 
-  println(result)
+  val machine2 = Builder
+    .annotatedWith[String]
+    .whilst(_ != "quux")
+    .step
+    .step
+
+  val result1 = machine1.runTrace(program)
+  val result2 = machine2.runTrace(program)
+
+  println(result1.runSyncUnsafe())
+  println(result2.runSyncUnsafe())
 }

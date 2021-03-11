@@ -3,9 +3,10 @@ package wolfendale.control
 import cats._
 import cats.data._
 import cats.implicits._
-import wolfendale.control.eval.ProgramStep
+import io.iteratee.Enumerator
+import wolfendale.control.machine.Trace
 
-import scala.language.{existentials, higherKinds, implicitConversions}
+import scala.language.{existentials, implicitConversions}
 
 sealed abstract class Program[F[_], T, E, A] extends Serializable {
 
@@ -16,7 +17,7 @@ sealed abstract class Program[F[_], T, E, A] extends Serializable {
   @inline
   final def flatMap[B](f: A => Program[F, T, E, B]): Program[F, T, E, B] =
     this match {
-      case s: Short[F, T, E, A]    => s.shiftA[B]
+      case e: Error[F, T, E, A]    => e.shift[B]
       case c: Continue[F, T, E, A] => Continue(c.nested, (Kleisli(c.f) >>> Kleisli(f)).run, c.annotation)
       case r: Result[F, T, E, A]   => Continue(r, f, r.annotation)
     }
@@ -27,11 +28,10 @@ sealed abstract class Program[F[_], T, E, A] extends Serializable {
 
   final def foldLeft[B](b: B)(f: (B, A) => B)(implicit F: Functor[F], FF: Foldable[F]): B =
     this match {
-      case _: Short[F, T, E, A]    => b
+      case _: Error[F, T, E, A]    => b
       case Pure(a, _)              => f(b, a)
       case Suspend(fa, _)          => fa.foldLeft(b)(f)
       case c: Continue[F, T, E, A] => c.nested match {
-        case _: Short[F, T, E, c.X] => b
         case Pure(cx, _)            => c.f(cx).foldLeft(b)(f)
         case Suspend(fcx, _)        => fcx.foldLeft(b)((bb, cx) => c.f(cx).foldLeft(bb)(f))
       }
@@ -39,11 +39,10 @@ sealed abstract class Program[F[_], T, E, A] extends Serializable {
 
   final def foldRight[B](lb: Eval[B])(f: (A, Eval[B]) => Eval[B])(implicit F: Functor[F], FF: Foldable[F]): Eval[B] =
     this match {
-      case _: Short[F, T, E, A]    => lb
+      case _: Error[F, T, E, A]    => lb
       case Pure(a, _)              => f(a, lb)
       case Suspend(fa, _)          => fa.foldRight(lb)(f)
       case c: Continue[F, T, E, A] => c.nested match {
-        case _: Short[F, T, E, c.X] => lb
         case Pure(cx, _)            => c.f(cx).foldRight(lb)(f)
         case Suspend(fcx, _)        => fcx.foldRight(lb)((cx, bb) => c.f(cx).foldRight(bb)(f))
       }
@@ -51,23 +50,31 @@ sealed abstract class Program[F[_], T, E, A] extends Serializable {
 
   final def traverse[G[_], B](f: A => G[B])(implicit F: Functor[F], AG: Applicative[G], TF: Traverse[F]): G[Program[F, T, E, B]] =
     this match {
-      case s: Short[F, T, E, A]    => AG.pure(s.shiftA[B])
+      case e: Error[F, T, E, A]    => AG.pure(e.shift[B])
       case Pure(a, t)              => f(a).map(Pure(_, t))
       case Suspend(fa, t)          => fa.traverse(f).map(Suspend(_, t))
       case c: Continue[F, T, E, A] => c.nested match {
-        case s: Short[F, T, E, c.X] => AG.pure(s.shiftA[B])
         case Pure(cx, _)            => c.f(cx).traverse(f)
         case Suspend(fcx, _)        => fcx.traverse(cx => c.f(cx).traverse(f)).map(roll)
       }
     }
 
-  final def step(implicit A: ApplicativeError[F, E]): F[ProgramStep[F, T, E, A]] =
+  final def step(implicit A: ApplicativeError[F, E]): F[Step[F, T, E, A]] =
     this match {
-      case s: Short[F, T, E, A]    => A.pure(Right(Left(s)))
-      case Pure(a, _)              => A.pure(Right(Right(a)))
-      case Suspend(fa, _)          => fa.map(a => Right(Right(a)))
-      case c: Continue[F, T, E, A] => c.continue.redeem(e => Right(Left(Error(e, c.annotation))), Left(_))
+      case e: Error[F, T, E, A]    => A.pure(Step.Halt(e))
+      case Pure(a, _)              => A.pure(Step.Result(a))
+      case Suspend(fa, _)          => fa.map(a => Step.Result(a))
+      case c: Continue[F, T, E, A] => c.continue.redeem(e => Step.Halt(Error(e, c.annotation)), Step.Continue(_))
     }
+
+  final def enumerate(implicit M: MonadError[F, E]): Enumerator[F, Step[F, T, E, A]] = {
+    def step(next: Step[F, T, E, A]): F[Option[Step[F, T, E, A]]] =
+      next match {
+        case Step.Continue(sub) => sub.step.map(Some(_))
+        case _                  => M.pure(None)
+      }
+    Enumerator.iterateUntilM[F, Step[F, T, E, A]](Step.Continue(this))(step)
+  }
 }
 
 object Program {
@@ -84,18 +91,9 @@ object Program {
       s"suspend${annotation.map(a => s" @@ $a").mkString}"
   }
 
-  sealed abstract class Short[F[_], T, E, A] extends Result[F, T, E, A] with Serializable {
-
-    @inline
-    final def shiftA[B]: Short[F, T, E, B] =
-      this match {
-        case Halt(t)     => Halt(t)
-        case Error(e, t) => Error(e, t)
-      }
+  final case class Error[F[_], T, E, A](error: E, annotation: Option[T] = None) extends Program[F, T, E, A] {
+    def shift[B]: Error[F, T, E, B] = this.asInstanceOf[Error[F, T, E, B]]
   }
-
-  final case class Halt[F[_], T, E, A](annotation: Option[T]) extends Short[F, T, E, A]
-  final case class Error[F[_], T, E, A](error: E, annotation: Option[T] = None) extends Short[F, T, E, A]
 
   abstract class Continue[F[_], T, E, B] extends Program[F, T, E, B] with Serializable {
 
@@ -105,7 +103,6 @@ object Program {
 
     @inline
     final def continue(implicit A: Applicative[F]): F[Program[F, T, E, B]] = nested match {
-      case s: Short[F, T, E, X] => A.pure(s.shiftA[B])
       case Pure(a, _)           => A.pure(f(a))
       case Suspend(fa, _)       => fa.map(f)
     }
@@ -141,6 +138,15 @@ object Program {
   @inline
   def roll[F[_], T, E, A](fp: F[Program[F, T, E, A]]): Program[F, T, E, A] =
     suspend(fp).flatMap(identity) // Continue(Suspend, identity)
+
+  sealed abstract class Step[F[_], T, E, A] extends Serializable
+
+  object Step {
+
+    final case class Continue[F[_], T, E, A](program: Program[F, T, E, A]) extends Step[F, T, E, A]
+    final case class Halt[F[_], T, E, A](program: Program[F, T, E, A]) extends Step[F, T, E, A]
+    final case class Result[F[_], T, E, A](result: A) extends Step[F, T, E, A]
+  }
 
   implicit def monadInstance[F[_], T, E]: Monad[Program[F, T, E, *]] =
     new Monad[Program[F, T, E, *]] with StackSafeMonad[Program[F, T, E, *]] {
