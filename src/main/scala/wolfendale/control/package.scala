@@ -1,8 +1,9 @@
 package wolfendale
 
-import cats.data.StateT
+import cats.data._
 
 package object control {
 
-  type Machine[F[_], M, A, B] = StateT[F, Program[F, M, A], B]
+  type Step[F[_], M, S, E, A] = F[(Program[F, M, S], (Chain[Program[F, M, S]], Either[E, A]))]
+  type Machine[F[_], M, S, E, A] = EitherT[WriterT[StateT[F, Program[F, M, S], *], Chain[Program[F, M, S]], *], E, A]
 }

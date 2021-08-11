@@ -1,0 +1,24 @@
+@import wolfendale.example.Identifier
+
+@(answers: List[(String, String)])(implicit rh: RequestHeader)
+<html>
+  <body>
+    <h1>Check Your Answers</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>Page</th>
+          <th>Answer</th>
+        </tr>
+      </thead>
+      <tbody>
+        @answers.map { case (identifier, answer) =>
+          <tr>
+            <td>@identifier</td>
+            <td>@answer</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </body>
+</html>

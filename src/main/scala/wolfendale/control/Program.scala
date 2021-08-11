@@ -1,7 +1,7 @@
 package wolfendale.control
 
 import cats._
-import cats.data.{Chain, NonEmptyChain, StateT}
+import cats.data.{Chain, EitherT, NonEmptyChain, State, StateT, WriterT}
 import cats.implicits._
 
 import scala.language.implicitConversions
@@ -120,18 +120,6 @@ sealed abstract class Program[F[_], M, A] {
     }
 
   /**
-   * Attempts to take a step in the program, on failure the error
-   * is caught from the inner `F` and returned
-   *
-   * @param ev
-   * @tparam E the error type
-   * @return returns the next step in the program, or the current step if it failed, plus an
-   *         option containing the error if there is one
-   */
-  final def attemptStep[E](implicit ev: ApplicativeError[F, E]): F[(Program[F, M, A], Option[E])] =
-    this.step.map((_, Option.empty[E])).handleErrorWith(e => ev.pure((this, Some(e))))
-
-  /**
    * Runs the program to completion, this does not attempt to catch any errors,
    * any failures in `F` will be kept there
    *
@@ -149,197 +137,8 @@ sealed abstract class Program[F[_], M, A] {
     Monad[F].tailRecM(this)(next)
   }
 
-  /**
-   * Continually steps through the program while some predicate on the meta
-   * data of each step holds true, or until the end of the program.
-   *
-   * @param f
-   * @param ev
-   * @return the step which the program got to while running, this might be
-   *         the last step in a program if the predicate held true for the duration
-   */
-  final def runWhile(f: M => Boolean)(implicit ev: Monad[F]): F[Program[F, M, A]] =
-    Monad[F].iterateWhileM(this)(_.step)(p => p.meta.forall(f) || p.isDone)
-
-  /**
-   *
-   * Continually steps through the program until some pedicate on the meta
-   * data of any step holds true, or until the end of the program.
-   *
-   * @param f
-   * @param ev
-   * @return the step which the program got to while running, this might be
-   *         the last step in a program if the predicate never held true for the duration
-   */
-  final def runUntil(f: M => Boolean)(implicit ev: Monad[F]): F[Program[F, M, A]] =
-    Monad[F].iterateUntilM(this)(_.step)(p => p.meta.forall(f) || p.isDone)
-
-  final def runTo(f: M => Boolean)(implicit ev: Monad[F]): F[Program[F, M, A]] =
-    Machine[F, M, A] { b =>
-      b.runUntil(f) >> b.step
-    }.runS(this)
-
-  /**
-   * Runs the program to completion collecting every step of the program along the way
-   * in a `NonEmptyChain` (as this always includes the current step)
-   *
-   * @param ev
-   * @return the last step of the program and the `NonEmptyChain` of program steps
-   *         it took to get there
-   */
-  final def collect(implicit ev: Monad[F]): F[(Program[F, M, A], NonEmptyChain[Program[F, M, A]])] = {
-
-    def next(steps: NonEmptyChain[Program[F, M, A]]): F[Either[NonEmptyChain[Program[F, M, A]], (Program[F, M, A], NonEmptyChain[Program[F, M, A]])]] = {
-      val current = steps.last
-      if (current.isDone) {
-        ev.pure(Right((steps.last, steps)))
-      } else {
-        current.step.map(next => Left(steps :+ next))
-      }
-    }
-
-    Monad[F].tailRecM(NonEmptyChain.one(this))(next)
-  }
-
-  /**
-   * Continually steps through the program collecting every step taken along the way
-   * while a predicate on the meta data of each step holds true
-   *
-   * @param f
-   * @param ev
-   * @return the step that the program got to while running, this might be the last
-   *         step if the predicate held true for the duration of the program. Also,
-   *         the `Chain` of steps it took to get there
-   */
-  final def collectWhile(f: M => Boolean)(implicit ev: Monad[F]): F[(Program[F, M, A], Chain[Program[F, M, A]])] = {
-
-    def next(steps: Chain[Program[F, M, A]]): F[Either[Chain[Program[F, M, A]], (Program[F, M, A], Chain[Program[F, M, A]])]] = {
-      steps.lastOption.map(_.step).getOrElse(ev.pure(this)).map { current =>
-        val nextSteps = if (current.meta.forall(f)) steps :+ current else steps
-        if (!current.meta.forall(f) || current.isDone) Right((current, nextSteps)) else Left(nextSteps)
-      }
-    }
-
-    Monad[F].tailRecM(Chain.empty[Program[F, M, A]])(next)
-  }
-
-  /**
-   * Continually steps through the program collecting every step taken along the way
-   * until a predicate on the meta data of a step holds true
-   *
-   * @param f
-   * @param ev
-   * @return the step that the program got to while running, this might be the last
-   *         step if the predicate never held true for the duration of the program.
-   *         Also, the `Chain` of steps it took to get there
-   */
-  final def collectUntil(f: M => Boolean)(implicit ev: Monad[F]): F[(Program[F, M, A], Chain[Program[F, M, A]])] =
-    collectWhile(!f(_))
-
-  final def collectTo(f: M => Boolean)(implicit ev: Monad[F]): F[(Program[F, M, A], Chain[Program[F, M, A]])] =
-    Machine[F, M, A] { b =>
-      for {
-        steps <- b.collectUntil(f)
-        next  <- b.step
-      } yield if (steps.lastOption.contains(next)) steps else steps :+ next
-    }.run(this)
-
-  /**
-   * Attempt to run the program to completion
-   *
-   * @param ev
-   * @tparam E
-   * @return The step that the program got to while attempting to run, this will either
-   *         be the last step in the program if there were no errors, or the step
-   *         in the program which threw the error. Also, either the result of the
-   *         program if it was successful or the error thrown if it was not
-   */
-  final def attempt[E](implicit ev: MonadError[F, E]): F[(Program[F, M, A], Either[E, A])] = {
-
-    def next(p: Program[F, M, A]): F[Either[Program[F, M, A], (Program[F, M, A], Either[E, A])]] =
-      p match {
-        case r: Result[F, M, A]   => r.resolve(a => Right((r, Right(a))))
-        case c: Continue[F, M, A] => c.attemptStep[E].map({ case (p, oe) =>
-          oe.map(e => Right((p, Left(e))))
-            .getOrElse(Left(p))
-        })
-      }
-
-    Monad[F].tailRecM(this)(next)
-  }
-
-  final def attemptWhile[E](f: M => Boolean)(implicit ev: MonadError[F, E]): F[(Program[F, M, A], Option[E])] = {
-
-    def next(p: Program[F, M, A]): F[Either[Program[F, M, A], (Program[F, M, A], Option[E])]] =
-      p match {
-        case r: Result[F, M, A]   => r.resolve(_ => Right((r, None)))
-        case c: Continue[F, M, A] => c.attemptStep[E].map({ case (p, oe) =>
-          oe.map(e => Right((p, Some(e))))
-            .getOrElse {
-              if (p.meta.forall(f)) Left(p) else Right(p, None)
-            }
-        })
-      }
-
-    Monad[F].tailRecM(this)(next)
-  }
-
-  final def attemptUntil[E](f: M => Boolean)(implicit ev: MonadError[F, E]): F[(Program[F, M, A], Option[E])] =
-    attemptWhile(!f(_))
-
-  final def attemptTo[E](f: M => Boolean)(implicit ev: MonadError[F, E]): F[(Program[F, M, A], Option[E])] =
-    Machine[F, M, A] { b =>
-      b.attemptUntil(f) >> b.attemptStep
-    }.run(this)
-
-  final def attemptCollect[E](implicit ev: MonadError[F, E]): F[(Program[F, M, A], (NonEmptyChain[Program[F, M, A]], Option[E]))] = {
-
-    def next(steps: NonEmptyChain[Program[F, M, A]]): F[Either[NonEmptyChain[Program[F, M, A]], (Program[F, M, A], (NonEmptyChain[Program[F, M, A]], Option[E]))]] = {
-      val current = steps.last
-      if (current.isDone) {
-        ev.pure(Right((steps.last, (steps, None))))
-      } else {
-        current.attemptStep.map { case (p, oe) =>
-          oe.map(e => Right((p, (steps, Some(e)))))
-            .getOrElse(Left(steps :+ p))
-        }
-      }
-    }
-
-    Monad[F].tailRecM(NonEmptyChain.one(this))(next)
-  }
-
-  final def attemptCollectWhile[E](f: M => Boolean)(implicit ev: MonadError[F, E]): F[(Program[F, M, A], (Chain[Program[F, M, A]], Option[E]))] = {
-
-    def next(steps: Chain[Program[F, M, A]]): F[Either[Chain[Program[F, M, A]], (Program[F, M, A], (Chain[Program[F, M, A]], Option[E]))]] = {
-      steps.lastOption.map(_.attemptStep).getOrElse(ev.pure((this, None))).map { case (current, oe) =>
-        val nextSteps = if (current.meta.forall(f)) steps :+ current else steps
-        oe.map(e => Right((current, (nextSteps, Some(e)))))
-          .getOrElse {
-            if (!current.meta.forall(f) || current.isDone) {
-              Right((current, (nextSteps, None)))
-            } else {
-              Left(nextSteps)
-            }
-          }
-      }
-    }
-
-    Monad[F].tailRecM(Chain.empty[Program[F, M, A]])(next)
-  }
-
-  final def attemptCollectUntil[E](f: M => Boolean)(implicit ev: MonadError[F, E]): F[(Program[F, M, A], (Chain[Program[F, M, A]], Option[E]))] =
-    attemptCollectWhile(!f(_))
-
-  final def attemptCollectTo[E](f: M => Boolean)(implicit ev: MonadError[F, E]): F[(Program[F, M, A], (Chain[Program[F, M, A]], Option[E]))] =
-    Machine[F, M, A] { b =>
-      for {
-        (steps, e1) <- b.attemptCollectUntil(f)
-        e2          <- b.attemptStep
-        next        <- StateT.get[F, Program[F, M, A]]
-        nextSteps   =  if (steps.lastOption.contains(next)) steps else steps :+ next
-      } yield (nextSteps, e1 orElse e2)
-    }.run(this)
+  final def runWith[B, E](machine: Machine[F, M, A, E, B])(implicit ev: MonadError[F, E]): F[(Program[F, M, A], (Chain[Program[F, M, A]], Either[E, B]))] =
+    machine.value.run.run(this)
 }
 
 object Program {
@@ -497,6 +296,33 @@ object Program {
    */
   def roll[F[_], M, A](fp: F[Program[F, M, A]], meta: Option[M] = None): Program[F, M, A] =
     Continue(Suspend(fp), identity[Program[F, M, A]], meta)
+
+//  def stepResult[F[_], M, S, E](implicit ev: MonadError[F, E]): MachineT[F, M, S, E, Unit] = {
+//    StateT {
+//      case p: Pure[F, M, S]     => EitherT.right(WriterT(ev.pure(Chain.empty, (p, ()))))
+//      case s @ Suspend(fa, _)   => EitherT { WriterT {
+//        fa.as(Chain.empty[Program[F, M, S]], (s: Program[F, M, S], ()).asRight[E])
+//          .handleError(e => (Chain.empty[Program[F, M, S]], e.asLeft))
+//      } }
+//      case c: Continue[F, M, S] => EitherT { WriterT {
+//        c.continue.map(p => (Chain.one(c: Program[F, M, S]), (p, ()).asRight[E]))
+//          .handleError(e => (Chain.one(c: Program[F, M, S]), e.asLeft))
+//      } }
+//    }
+//  }
+
+  def stepResult[F[_], M, E, A](implicit ev: MonadError[F, E]): Machine[F, M, A, E, Program[F, M, A]] = ???
+//    EitherT { WriterT { StateT { program =>
+//      program.stepResult
+//    } } }
+
+//  def runResult[F[_], M, S, E](implicit ev: MonadError[F, E]): MachineT[F, M, S, E, Unit] = {
+//    EitherT { WriterT { StateT { initial =>
+//      val x = Monad[MachineT[F, M, S, E, *]].tailRecM(initial) { program =>
+//        stepResult[F, M, S, E].value.run.run(program)
+//      }
+//    } } }
+//  }
 
   implicit def functorInstance[F[_], M]: Functor[Program[F, M, *]] =
     new Functor[Program[F, M, *]] {

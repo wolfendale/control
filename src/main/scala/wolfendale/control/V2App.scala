@@ -7,18 +7,15 @@ object V2App extends App {
 
   val program = for {
     a <- IO.pure(1).annotated("foo")
-    b <- IO.pure(2).annotated("bar")
-    _ <- IO.raiseError[Unit](new Exception("Hi")).toProgram[String]
+    b <- IO.pure(2).toProgram
+    _ <- IO.raiseError[Unit](new Exception("Hi")).annotated("boom")
     c <- IO.pure(3).annotated("baz")
   } yield a + b + c
 
-  val machine = Machine[IO, String, Int] { b =>
-    for {
-      a <- b.attemptCollectUntil(_ == "baz")
-    } yield a
-  }
 
-  val result = machine.runA(program).unsafeRunSync()
+  val (current, (history, result)) = program.runWith(Machine.runUntil("boom")).unsafeRunSync()
+  println("current", current)
+  println("result", result)
+  println("history", history)
 
-  println(result)
 }
