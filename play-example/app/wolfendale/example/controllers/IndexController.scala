@@ -24,19 +24,19 @@ class IndexController @Inject() (
       IO.pure(Redirect(routes.IndexController.backOnTrack(identifier.call.url)))
     }.getOrElse(IO.raiseError(e))
 
-  private def get(identifier: Identifier): Action[AnyContent] =
+  private def get(identifier: Identifier, amend: Boolean): Action[AnyContent] =
     journeyAction.async { implicit request =>
       request.journey.runWith(Machine.runUntil(identifier)).flatMap { case (current, (history, result)) =>
         result match {
           case Left(e) =>
             fallback(current, history, e)
           case _ =>
-            IO.pure(Ok(views.html.get(identifier)))
+            IO.pure(Ok(views.html.get(identifier, amend)))
         }
       }.unsafeToFuture()
     }
 
-  private def post(identifier: Identifier): Action[AnyContent] = {
+  private def post(identifier: Identifier, amend: Boolean): Action[AnyContent] = {
 
     val form = Form(
       single("value" -> text)
@@ -50,8 +50,10 @@ class IndexController @Inject() (
       } yield next).flatMap { case (current, (history, result)) =>
         result match {
           case Right(p) =>
-            p.meta.map(identifier => IO.pure(Redirect(identifier.call).withSession(request.session)))
-              .getOrElse(fallback(current, history, new IllegalStateException))
+            p.meta.map { identifier =>
+              val url = if (amend) routes.IndexController.getCheckYourAnswers() else identifier.call
+              IO.pure(Redirect(url).withSession(request.session))
+            }.getOrElse(fallback(current, history, new IllegalStateException))
           case Left(e) => fallback(current, history, e)
         }
       }.unsafeToFuture()
@@ -69,20 +71,20 @@ class IndexController @Inject() (
               program    <- history.toList
               identifier <- program.meta
               value      <- request.session.get(identifier.sessionKey)
-            } yield (identifier.sessionKey, value)
+            } yield (identifier, value)
             IO.pure(Ok(views.html.checkYourAnswers(answers)))
         }
       }.unsafeToFuture()
     }
 
-  def getA: Action[AnyContent] = get(Identifier.A)
-  def postA: Action[AnyContent] = post(Identifier.A)
+  def getA(amend: Boolean): Action[AnyContent] = get(Identifier.A, amend)
+  def postA(amend: Boolean): Action[AnyContent] = post(Identifier.A, amend)
 
-  def getB: Action[AnyContent] = get(Identifier.B)
-  def postB: Action[AnyContent] = post(Identifier.B)
+  def getB(amend: Boolean): Action[AnyContent] = get(Identifier.B, amend)
+  def postB(amend: Boolean): Action[AnyContent] = post(Identifier.B, amend)
 
-  def getC: Action[AnyContent] = get(Identifier.C)
-  def postC: Action[AnyContent] = post(Identifier.C)
+  def getC(amend: Boolean): Action[AnyContent] = get(Identifier.C, amend)
+  def postC(amend: Boolean): Action[AnyContent] = post(Identifier.C, amend)
 
   // This should be validated to make sure it's a safe url to redirect someone to
   def backOnTrack(url: String): Action[AnyContent] = Action { implicit request =>

@@ -1,9 +1,9 @@
-GET    /   wolfendale.example.controllers.IndexController.getA()
-POST   /   wolfendale.example.controllers.IndexController.postA()
-GET    /b   wolfendale.example.controllers.IndexController.getB()
-POST   /b   wolfendale.example.controllers.IndexController.postB()
-GET    /c   wolfendale.example.controllers.IndexController.getC()
-POST   /c   wolfendale.example.controllers.IndexController.postC()
-GET    /back-on-track   wolfendale.example.controllers.IndexController.backOnTrack(url: String)
+GET    /                      wolfendale.example.controllers.IndexController.getA(amend: Boolean ?= false)
+POST   /                      wolfendale.example.controllers.IndexController.postA(amend: Boolean ?= false)
+GET    /b                     wolfendale.example.controllers.IndexController.getB(amend: Boolean ?= false)
+POST   /b                     wolfendale.example.controllers.IndexController.postB(amend: Boolean ?= false)
+GET    /c                     wolfendale.example.controllers.IndexController.getC(amend: Boolean ?= false)
+POST   /c                     wolfendale.example.controllers.IndexController.postC(amend: Boolean ?= false)
+GET    /back-on-track         wolfendale.example.controllers.IndexController.backOnTrack(url: String)
 GET    /check-your-answers    wolfendale.example.controllers.IndexController.getCheckYourAnswers()
-GET    /clear wolfendale.example.controllers.IndexController.clearSession
+GET    /clear                 wolfendale.example.controllers.IndexController.clearSession

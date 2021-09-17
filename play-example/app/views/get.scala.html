@@ -1,11 +1,11 @@
 @import wolfendale.example.Identifier
 
 @import views.html.helper.CSRF
-@(identifier: Identifier)(implicit rh: RequestHeader)
+@(identifier: Identifier, amend: Boolean)(implicit rh: RequestHeader)
 <html>
   <body>
     <h1>@{identifier.sessionKey}</h1>
-    <form action="@{identifier.call.absoluteURL()}" method="post">
+    <form action="@{identifier.call.absoluteURL()}@if(amend){?amend=true}" method="post">
       @{CSRF.formField}
       <input name="value">
       <button>Submit</button>

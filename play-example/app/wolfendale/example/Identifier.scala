@@ -2,7 +2,10 @@ package wolfendale.example
 
 import play.api.mvc.Call
 
-sealed abstract class Identifier(val sessionKey: String, val call: Call) extends Product with Serializable
+sealed abstract class Identifier(
+                                  val sessionKey: String,
+                                  val call: Call,
+                                ) extends Product with Serializable
 
 object Identifier {
 

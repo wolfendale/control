@@ -1,6 +1,6 @@
 @import wolfendale.example.Identifier
 
-@(answers: List[(String, String)])(implicit rh: RequestHeader)
+@(answers: List[(Identifier, String)])(implicit rh: RequestHeader)
 <html>
   <body>
     <h1>Check Your Answers</h1>
@@ -9,13 +9,15 @@
         <tr>
           <th>Page</th>
           <th>Answer</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         @answers.map { case (identifier, answer) =>
           <tr>
-            <td>@identifier</td>
+            <td>@identifier.sessionKey</td>
             <td>@answer</td>
+            <td><a href="@{identifier.call.absoluteURL}?amend=true">Edit</a></td>
           </tr>
         }
       </tbody>

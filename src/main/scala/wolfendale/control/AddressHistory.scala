@@ -50,7 +50,7 @@ object AddressHistory extends App {
     address(addresses.length, addresses.headOption.map(_.address)).map(_ :: addresses)
   } { _.foldLeft(0)(_ + _.years) >= 5 }
 
-//  val result = program.attempt.runSyncUnsafe()
-//
-//  println(result)
+  val result = program.runWith(Machine.run).runSyncUnsafe()
+
+  println(result)
 }
