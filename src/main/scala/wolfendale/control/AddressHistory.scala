@@ -1,8 +1,7 @@
 package wolfendale.control
 
+import cats.effect.IO
 import cats.implicits._
-import monix.eval.Task
-import monix.execution.Scheduler.Implicits.global
 import wolfendale.control.syntax._
 
 import scala.io.StdIn
@@ -15,9 +14,9 @@ object AddressHistory extends App {
   final case class AddressIdentifier(index: Int) extends Identifier
   final case class YearsIdentifier(index: Int) extends Identifier
 
-  def getAddress(followingAddress: Option[String], index: Int): Program[Task, Identifier, String] =
+  def getAddress(followingAddress: Option[String], index: Int): Program[IO, Identifier, String] =
     annotatedWith[Identifier](AddressIdentifier(index)) {
-      Task.eval {
+      IO.delay {
 
         val message = followingAddress.map { a =>
           s"What was your address before $a?"
@@ -30,9 +29,9 @@ object AddressHistory extends App {
       }
     }
 
-  def howLong(address: String, index: Int): Program[Task, Identifier, Int] =
+  def howLong(address: String, index: Int): Program[IO, Identifier, Int] =
     annotatedWith[Identifier](YearsIdentifier(index)) {
-      Task.eval {
+      IO.delay {
         println(s"How many years have you lived at $address?")
         val answer = StdIn.readLine().toInt
         println(s"($answer)")
@@ -40,7 +39,7 @@ object AddressHistory extends App {
       }
     }
 
-  def address(index: Int, followingAddress: Option[String]): Program[Task, Identifier, AddressHistory] = for {
+  def address(index: Int, followingAddress: Option[String]): Program[IO, Identifier, AddressHistory] = for {
     address       <- getAddress(followingAddress, index)
     timeAtAddress <- howLong(address, index)
   } yield AddressHistory(address, timeAtAddress)
@@ -50,7 +49,7 @@ object AddressHistory extends App {
     address(addresses.length, addresses.headOption.map(_.address)).map(_ :: addresses)
   } { _.foldLeft(0)(_ + _.years) >= 5 }
 
-  val result = program.runWith(Machine.run).runSyncUnsafe()
+  val result = program.runWith(Machine.run).unsafeRunSync()
 
   println(result)
 }

@@ -10,9 +10,7 @@ lazy val root = (project in file("."))
     name := "control",
     version := "0.1.0",
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-core" % "2.3.0",
-      "org.typelevel" %% "cats-free" % "2.3.0", // TODO remove this as it's not required
-      "io.monix" %% "monix" % "3.2.1"
+      "org.typelevel" %% "cats-core" % "2.3.0"
     )
   )
 
