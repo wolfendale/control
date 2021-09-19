@@ -1,7 +1,7 @@
 package wolfendale.control
 
 import cats._
-import cats.data.{Chain, EitherT, NonEmptyChain, State, StateT, WriterT}
+import cats.data.Chain
 import cats.implicits._
 
 import scala.language.implicitConversions
@@ -296,33 +296,6 @@ object Program {
    */
   def roll[F[_], M, A](fp: F[Program[F, M, A]], meta: Option[M] = None): Program[F, M, A] =
     Continue(Suspend(fp), identity[Program[F, M, A]], meta)
-
-//  def stepResult[F[_], M, S, E](implicit ev: MonadError[F, E]): MachineT[F, M, S, E, Unit] = {
-//    StateT {
-//      case p: Pure[F, M, S]     => EitherT.right(WriterT(ev.pure(Chain.empty, (p, ()))))
-//      case s @ Suspend(fa, _)   => EitherT { WriterT {
-//        fa.as(Chain.empty[Program[F, M, S]], (s: Program[F, M, S], ()).asRight[E])
-//          .handleError(e => (Chain.empty[Program[F, M, S]], e.asLeft))
-//      } }
-//      case c: Continue[F, M, S] => EitherT { WriterT {
-//        c.continue.map(p => (Chain.one(c: Program[F, M, S]), (p, ()).asRight[E]))
-//          .handleError(e => (Chain.one(c: Program[F, M, S]), e.asLeft))
-//      } }
-//    }
-//  }
-
-  def stepResult[F[_], M, E, A](implicit ev: MonadError[F, E]): Machine[F, M, A, E, Program[F, M, A]] = ???
-//    EitherT { WriterT { StateT { program =>
-//      program.stepResult
-//    } } }
-
-//  def runResult[F[_], M, S, E](implicit ev: MonadError[F, E]): MachineT[F, M, S, E, Unit] = {
-//    EitherT { WriterT { StateT { initial =>
-//      val x = Monad[MachineT[F, M, S, E, *]].tailRecM(initial) { program =>
-//        stepResult[F, M, S, E].value.run.run(program)
-//      }
-//    } } }
-//  }
 
   implicit def functorInstance[F[_], M]: Functor[Program[F, M, *]] =
     new Functor[Program[F, M, *]] {
