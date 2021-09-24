@@ -1,0 +1,14 @@
+@import wolfendale.example.Identifier
+
+@import views.html.helper.CSRF
+@(identifier: Identifier, value: Option[String], amend: Boolean)(implicit rh: RequestHeader)
+<html>
+  <body>
+    <h1>@{identifier.sessionKey}</h1>
+    <form action="@identifier.call@if(amend){?amend=true}" method="post">
+      @{CSRF.formField}
+      <input name="value" value="@value">
+      <button>Submit</button>
+    </form>
+  </body>
+</html>

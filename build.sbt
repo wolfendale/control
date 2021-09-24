@@ -10,7 +10,8 @@ lazy val root = (project in file("."))
     name := "control",
     version := "0.1.0",
     libraryDependencies ++= Seq(
-      "org.typelevel" %% "cats-core" % "2.3.0"
+      "org.typelevel" %% "cats-core" % "2.3.0",
+      "org.typelevel" %% "cats-effect" % "3.2.2",
     )
   )
 
@@ -25,6 +26,21 @@ lazy val playExample = (project in file("play-example"))
     libraryDependencies ++= Seq(
       guice,
       "org.typelevel" %% "cats-core" % "2.3.0",
-      "org.typelevel" %% "cats-effect" % "3.2.2"
+      "org.typelevel" %% "cats-effect" % "3.2.2",
+      "com.beachape" %% "enumeratum-play" % "1.6.1"
+    )
+  )
+
+lazy val ossExample = (project in file("oss-example"))
+  .enablePlugins(PlayScala)
+  .dependsOn(root)
+  .settings(
+    commonSettings,
+    name := "oss-example",
+    version := "0.1.0",
+    libraryDependencies ++= Seq(
+      guice,
+      "org.typelevel" %% "cats-core" % "2.3.0",
+      "org.typelevel" %% "cats-effect" % "3.2.2",
     )
   )
