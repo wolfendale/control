@@ -1,6 +1,7 @@
 package wolfendale.control
 
 import cats.effect._
+import cats.effect.unsafe.implicits.global
 import wolfendale.control.syntax._
 
 object V2App extends App {
@@ -12,10 +13,8 @@ object V2App extends App {
     c <- IO.pure(3).annotated("baz")
   } yield a + b + c
 
-
   val (current, (history, result)) = program.runWith(Machine.runUntil("boom")).unsafeRunSync()
   println("current", current)
   println("result", result)
   println("history", history)
-
 }
