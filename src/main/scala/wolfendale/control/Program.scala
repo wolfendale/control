@@ -60,39 +60,6 @@ sealed abstract class Program[F[_], M, A] {
   final def map[B](f: A => B): Program[F, M, B] =
     flatMap(a => Pure(f(a)))
 
-  // TODO test
-  final def foldLeft[B](b: B)(f: (B, A) => B)(implicit FF: Foldable[F]): B =
-    this match {
-      case Pure(a, _)           => f(b, a)
-      case Suspend(fa, _)       => fa.foldLeft(b)(f)
-      case c: Continue[F, M, A] => c.nested match {
-        case Pure(x, _)     => c.f(x).foldLeft(b)(f)
-        case Suspend(fx, _) => fx.foldLeft(b)((bb, x) => c.f(x).foldLeft(bb)(f))
-      }
-    }
-
-  // TODO test
-  final def foldRight[B](lb: Eval[B])(f: (A, Eval[B]) => Eval[B])(implicit FF: Foldable[F]): Eval[B] =
-    this match {
-      case Pure(a, _)           => f(a, lb)
-      case Suspend(fa, _)       => fa.foldRight(lb)(f)
-      case c: Continue[F, M, A] => c.nested match {
-        case Pure(x, _)     => c.f(x).foldRight(lb)(f)
-        case Suspend(fx, _) => fx.foldRight(lb)((x, bb) => c.f(x).foldRight(bb)(f))
-      }
-    }
-
-  // TODO test
-  final def traverse[G[_], B](f: A => G[B])(implicit A: Applicative[G], T: Traverse[F]): G[Program[F, M, B]] =
-    this match {
-      case Pure(a, m)           => f(a).map(Pure(_, m))
-      case Suspend(fa, m)       => fa.traverse(f).map(Suspend(_, m)) // TODO do we need to retain annotation info here?
-      case c: Continue[F, M, A] => c.nested match {
-        case Pure(x, _)     => c.f(x).traverse(f)
-        case Suspend(fx, m) => fx.traverse(x => c.f(x).traverse(f)).map(roll(_, m)) // TODO does we need to retain annotation info here?
-      }
-    }
-
   // TODO test, this was a nightmare
   final def handleErrorWith[E](f: E => Program[F, M, A])(implicit ev: ApplicativeError[F, E]): Program[F, M, A] =
     this match {
@@ -338,29 +305,6 @@ object Program {
 
       override def pure[A](x: A): Program[F, M, A] =
         Program.pure[F, M](x)
-    }
-
-  implicit def foldableInstance[F[_], M](implicit ev: Foldable[F]): Foldable[Program[F, M, *]] =
-    new Foldable[Program[F, M, *]] {
-
-      override def foldLeft[A, B](fa: Program[F, M, A], b: B)(f: (B, A) => B): B =
-        fa.foldLeft(b)(f)
-
-      override def foldRight[A, B](fa: Program[F, M, A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] =
-        fa.foldRight(lb)(f)
-    }
-
-  implicit def traverseInstance[F[_], M](implicit ev: Traverse[F]): Traverse[Program[F, M, *]] =
-    new Traverse[Program[F, M, *]] {
-
-      override def traverse[G[_], A, B](fa: Program[F, M, A])(f: A => G[B])(implicit evidence$1: Applicative[G]): G[Program[F, M, B]] =
-        fa.traverse(f)
-
-      override def foldLeft[A, B](fa: Program[F, M, A], b: B)(f: (B, A) => B): B =
-        fa.foldLeft(b)(f)
-
-      override def foldRight[A, B](fa: Program[F, M, A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B]=
-        fa.foldRight(lb)(f)
     }
 }
 
