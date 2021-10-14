@@ -82,7 +82,7 @@ sealed abstract class Program[F[_], M, A] {
    */
   final def step(implicit ev: Applicative[F]): F[Program[F, M, A]] =
     this match {
-      case r: Result[F, M, A]   => r.resolve(Pure(_))
+      case r: Result[F, M, A]   => r.resolve.map(Pure(_))
       case c: Continue[F, M, A] => c.continue
     }
 
@@ -97,7 +97,7 @@ sealed abstract class Program[F[_], M, A] {
 
     def next(p: Program[F, M, A]): F[Either[Program[F, M, A], A]] =
       p match {
-        case r: Result[F, M, A]   => r.resolve(Right(_))
+        case r: Result[F, M, A]   => r.resolve.map(Right(_))
         case c: Continue[F, M, A] => c.continue.map(Left(_))
       }
 
@@ -124,10 +124,10 @@ object Program {
   sealed abstract class Result[F[_], M, A] extends Program[F, M, A] {
 
     @inline
-    final def resolve[B](f: A => B)(implicit ev: Applicative[F]): F[B] =
+    final def resolve(implicit ev: Applicative[F]): F[A] =
       this match {
-        case Pure(a, _)     => ev.pure(f(a))
-        case Suspend(fa, _) => fa.map(f)
+        case Pure(a, _)     => ev.pure(a)
+        case Suspend(fa, _) => fa
       }
   }
 
