@@ -27,9 +27,9 @@ sealed abstract class Journey[+A] {
   final def handleErrorWith[B >: A](f: Throwable => Journey[B])(implicit ec: ExecutionContext): Journey[B] =
     this match {
       case p: Pure[A]        => p
-      case Suspend(fa, key)  => roll(fa.map(pure).recoverWith(e => Future.successful(f(e))), key)
+      case Suspend(fa, key)  => roll(fa.map(pure).recoverWith({ case e => Future.successful(f(e)) }), key)
       // TODO remove step as this executes the program while building it up
-      case c: Continue[A] => roll(c.step.map(_.handleErrorWith(f)).recoverWith(e => f(e).step), c.page)
+      case c: Continue[A] => roll(c.step.map(_.handleErrorWith(f)).recoverWith({ case e => f(e).step }), c.page)
     }
 
   final def step(implicit ev: ExecutionContext): Future[Journey[A]] =
@@ -44,15 +44,12 @@ sealed abstract class Journey[+A] {
   final def to[P <: Page : ClassTag](id: Journey.Id)(implicit ec: ExecutionContext, defaultsTo: P DefaultsTo Page): Future[Step[P]] =
     run(Journey.runTo[P](id))
 
-  final def toPage(id: Journey.Id)(implicit ec: ExecutionContext): Future[Step[Page]] =
-    run(Journey.runTo[Page](id))
-
-  final def nextFor(id: Journey.Id)(implicit ec: ExecutionContext): Future[Step[Id]] =
+  final def nextFor[I <: Id : ClassTag](id: Journey.Id)(implicit ec: ExecutionContext, defaultsTo: I DefaultsTo Id): Future[Step[I]] =
     run {
       for {
         _    <- Journey.runTo[Page](id)
         _    <- Journey.step
-        next <- Journey.resume
+        next <- Journey.resume[I]
       } yield next
     }
 }
@@ -107,7 +104,7 @@ object Journey {
   def roll[A](fj: Future[Journey[A]], page: Option[Page]): Journey[A] =
     Continue(Suspend(fj), identity[Journey[A]], page)
 
-  def page(page: Page): Journey[Unit] = Journey(Future.unit, Some(page))
+  def fromPage(page: Page): Journey[Unit] = Journey(Future.unit, Some(page))
 
   trait Id
 
@@ -121,7 +118,8 @@ object Journey {
   }
 
   final case class Step[A](current: Journey[_], history: Vector[Journey[_]], result: Either[Throwable, A]) {
-    def lastPage: Option[Page] = current.page.orElse(history.flatMap(_.page).lastOption)
+    def lastPage[P <: Page : ClassTag](implicit defaultsTo: P DefaultsTo Page): Option[P] =
+      current.page.collect({ case p: P => p }).orElse(history.flatMap(_.page).lastOption.collect({ case p: P => p }))
   }
 
   case object UnexpectedEndError extends Throwable with NoStackTrace {
@@ -189,10 +187,16 @@ object Journey {
   private def runTo[P <: Page : ClassTag](id: Journey.Id)(implicit ec: ExecutionContext) =
     runUntil[P](page => page.id == id)
 
-  private def resume(implicit ec: ExecutionContext) =
-    machine[Id](
-      onComplete = page => page.map(p => Future.successful(p.id)).getOrElse(Future.failed(UnexpectedEndError)),
-      onContinue = page => Future.successful(page.map(_.id))
+  private def resume[I <: Id : ClassTag](implicit ec: ExecutionContext) =
+    machine[I](
+      onComplete = page => page.map(_.id) match {
+        case Some(i: I) => Future.successful(i)
+        case _          => Future.failed(UnexpectedEndError)
+      },
+      onContinue = page => page.map(_.id) match {
+        case Some(i: I) => Future.successful(Some(i))
+        case _          => Future.successful(None)
+      }
     ).untilDefinedM
 
   implicit def monadInstance(implicit ec: ExecutionContext): StackSafeMonad[Journey] with MonadThrow[Journey] =
